@@ -10,6 +10,7 @@ API_URL = "https://api.open511.gov.bc.ca/events"
 
 s3 = boto3.client('s3')
 
+
 def lambda_handler(event, context):
     try:
         response = requests.get(API_URL)

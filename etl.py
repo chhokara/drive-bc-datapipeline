@@ -26,7 +26,8 @@ df["created"] = df["created"].dt.date
 df["updated"] = df["updated"].dt.date
 
 # Compute duration only for "INACTIVE" rows
-df["duration"] = (pd.to_datetime(df["updated"]) - pd.to_datetime(df["created"])).where(df["status"] == "INACTIVE", pd.NaT)
+df["duration"] = (pd.to_datetime(df["updated"]) -
+                  pd.to_datetime(df["created"])).where(df["status"] == "INACTIVE", pd.NaT)
 print(df['duration'])
 # Convert duration to an integer (days)
 df["duration"] = df["duration"].dt.days
@@ -37,6 +38,7 @@ schema = {col: str(df[col].dtype) for col in df.columns}
 print("\nSchema of the DataFrame:")
 print(json.dumps(schema, indent=4))
 csv_file_path = "/Users/ibrahimali/Desktop/CMPT733/CMPT733-ENV/Final_Project/incidents_data.csv"
-df.to_csv(csv_file_path, index=False)  # index=False prevents adding an extra index column
+# index=False prevents adding an extra index column
+df.to_csv(csv_file_path, index=False)
 
 print(f"DataFrame successfully exported to: {csv_file_path}")
