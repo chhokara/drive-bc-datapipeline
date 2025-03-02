@@ -1,25 +1,36 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, ArrayType, DoubleType
-from pyspark.sql.functions import col, lower, trim, regexp_replace, to_timestamp, explode
+from pyspark.sql.functions import col, lower, trim, regexp_replace, to_timestamp, explode, udf
 import sys
 assert sys.version_info >= (3, 5)
 
 
+def normalize_coordinates(geo_type, coords):
+    try:
+        if geo_type == "Point":
+            return [[float(coords[0]), float(coords[1])]]
+        elif geo_type == "LineString":
+            return [[float(p[0]), float(p[1])] for p in coords]
+        else:
+            return None
+    except:
+        return None
+
+
+normalize_coordinates_udf = udf(
+    normalize_coordinates, ArrayType(ArrayType(DoubleType())))
+
+
 def read_data(spark, input_path_events):
     raw_events = spark.read.json(input_path_events)
-
-    print("Schema before flattening:")
-    raw_events.printSchema()
-    raw_events.show(truncate=False)
 
     events_exploded = raw_events.select(
         explode(col("events")).alias("events_data"))
 
     events = events_exploded.select("events_data.*")
 
-    print("Schema after flattening:")
-    events.printSchema()
-    events.show(truncate=False)
+    events = events.withColumn("geography.coordinates",
+                               normalize_coordinates_udf(col("geography.type"), col("geography.coordinates")))
 
     return events
 
