@@ -1,5 +1,5 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lower, trim, regexp_replace, to_timestamp, explode
+from pyspark.sql.functions import col, lower, trim, when, to_timestamp, explode, regexp_replace
 import sys
 assert sys.version_info >= (3, 5)
 
@@ -12,13 +12,22 @@ def read_data(spark, input_path_events):
 
     events = events_exploded.select("events_data.*")
 
-    print("Schema after exploding and normalizing coordinates:")
-    events.printSchema()
-
     return events
 
 
 def clean_data(events_df):
+    events_df = events_df.withColumns(
+        "geography.coordinates",
+        when(
+            col("geography.type") == "Point",
+            col("geography.coordinates").cast(
+                "array<double>").cast("array<array<double>>")
+        ).when(
+            col("geography.type") == "LineString",
+            col("geography.coordinates").cast("array<array<double>>")
+        ).otherwise(None)
+    )
+
     events_df = events_df.dropDuplicates(["id"])
 
     events_df = events_df.fillna("unknown", subset=[
@@ -41,8 +50,9 @@ def main(input_path_events, output):
     events_df = read_data(spark, input_path_events)
     events_df = clean_data(events_df)
 
-    print("Final DF being written to parquet:")
+    print("Final schema being written to parquet:")
     events_df.printSchema()
+    print("Final DF being written to parquet:")
     events_df.show(truncate=False)
     events_df.write.mode("overwrite").parquet(output)
 
