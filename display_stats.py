@@ -15,7 +15,6 @@ plt.show()
 # Scatter plot of events
 df['geography.coordinates'] = df['geography.coordinates'].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
 coords = df['geography.coordinates'].apply(lambda x: x[0] if isinstance(x, list) and len(x) > 0 and isinstance(x[0], list) else x)
-coords
 
 longitudes = coords.str[0]
 latitudes = coords.str[1]
