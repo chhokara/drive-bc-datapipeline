@@ -1,6 +1,7 @@
+import ast
 import numpy as np
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lower, trim, to_timestamp, explode, regexp_replace, udf
+from pyspark.sql.functions import col, to_timestamp, explode, udf
 from pyspark.sql.types import ArrayType, DoubleType
 import sys
 assert sys.version_info >= (3, 5)
@@ -26,11 +27,22 @@ def process_coordinates(geo_type, coords):
                 return None
     elif geo_type == "LineString":
         if isinstance(coords, list) and len(coords) > 0:
-            latitudes = [float(coord[1]) for coord in coords]
-            longitudes = [float(coord[0]) for coord in coords]
-            avg_lat = np.mean(latitudes)
-            avg_lon = np.mean(longitudes)
-            return [avg_lat, avg_lon]
+            try:
+                parsed_coords = [ast.literal_eval(coord) if isinstance(
+                    coord, str) else coord for coord in coords]
+
+                valid_coords = [coord for coord in parsed_coords if isinstance(
+                    coord, list) and len(coord) == 2]
+
+                latitudes = [float(coord[1]) for coord in valid_coords]
+                longitudes = [float(coord[0]) for coord in valid_coords]
+
+                if latitudes and longitudes:
+                    avg_lat = float(np.mean(latitudes))
+                    avg_lon = float(np.mean(longitudes))
+                    return [avg_lat, avg_lon]
+            except (ValueError, SyntaxError):
+                return None
     return None
 
 
@@ -73,8 +85,6 @@ def main(input_path_events, output):
 
     print("Final schema being written to parquet:")
     events_df.printSchema()
-    print("Final DF being written to parquet:")
-    events_df.show(truncate=False)
     events_df.write.mode("overwrite").parquet(output)
 
 
