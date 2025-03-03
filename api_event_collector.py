@@ -15,6 +15,7 @@ def fetch_archived_events(offset=0, part_num=0):
         response = requests.get(url, timeout=60)
 
         if offset_to_reset_limit and offset > offset_to_reset_limit:
+            print(f'Passed {offset_to_reset_limit}, resetting limit.')
             limit = 500
             offset_to_reset_limit = None
 
@@ -28,6 +29,7 @@ def fetch_archived_events(offset=0, part_num=0):
             if response.status_code == 500:
                 if limit == 1:
                     print(f'Offset {offset} skipped, resetting limit.')
+                    log_skipped_offset(offset)
                     offset += 1
                     limit = 500
                 else:
@@ -41,7 +43,16 @@ def fetch_archived_events(offset=0, part_num=0):
         try:
             data = response.json()
         except json.JSONDecodeError as e:
-            print('JSON decoding error, re-attempting fetch.')
+            if limit == 1:
+                    print(f'Offset {offset} skipped, resetting limit.')
+                    log_skipped_offset(offset)
+                    offset += 1
+                    limit = 500
+            else:
+                print(f'JSON decoding error, reducing limit from {limit} to {limit // 2}')
+                offset_to_reset_limit = offset + limit
+                limit //= 2
+            continue
 
         new_events = data.get("events", [])
         events.extend(new_events)
@@ -106,6 +117,10 @@ def save_as_json(data, subdir, partiton_number):
     with open(f'{DIR_NAME}/{subdir}/records-{partiton_number}.json', "w") as f:
         json.dump(data, f, indent=4)
 
+def log_skipped_offset(number):
+    with open(f'{DIR_NAME}/skipped_offsets.log', 'a') as file:
+        file.write(f'{number}\n')
+
 def init_data_dir():
     os.mkdir(DIR_NAME)
     os.mkdir(f'{DIR_NAME}/ACTIVE')
@@ -122,7 +137,7 @@ if __name__ == '__main__':
     init_data_dir()
 
     fetch_areas()
-    fetch_active_events()
     fetch_archived_events(last_offset, part_num)
+    fetch_active_events()
 
     print(f'Process finished in {(time.time() - start_time) / 60} min.')
