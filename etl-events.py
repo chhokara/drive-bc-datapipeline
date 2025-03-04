@@ -1,6 +1,6 @@
 import ast
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, to_timestamp, explode, pandas_udf, PandasUDFType
+from pyspark.sql.functions import col, to_timestamp, explode, pandas_udf
 from pyspark.sql.types import ArrayType, DoubleType
 import sys
 assert sys.version_info >= (3, 5)
@@ -17,7 +17,7 @@ def read_data(spark, input_path_events):
     return events
 
 
-@pandas_udf(ArrayType(DoubleType()), PandasUDFType.SCALAR)
+@pandas_udf(ArrayType(DoubleType()))
 def process_coordinates_pandas(geo_type_series, coords_series):
     import pandas as pd
     import numpy as np
@@ -25,7 +25,7 @@ def process_coordinates_pandas(geo_type_series, coords_series):
     results = []
     for geo_type, coords in zip(geo_type_series, coords_series):
         if geo_type == "Point":
-            if isinstance(coords, list) and len(coords) == 2:
+            if len(coords) == 2:
                 try:
                     results.append([float(coords[0]), float(coords[1])])
                 except ValueError:
@@ -33,13 +33,13 @@ def process_coordinates_pandas(geo_type_series, coords_series):
             else:
                 results.append(None)
         elif geo_type == "LineString":
-            if isinstance(coords, list) and len(coords) > 0:
+            if len(coords) > 0:
                 try:
-                    parsed_coords = [ast.literal_eval(coord) if isinstance(
-                        coord, str) else coord for coord in coords]
+                    parsed_coords = [ast.literal_eval(
+                        coord) for coord in coords]
 
-                    valid_coords = [coord for coord in parsed_coords if isinstance(
-                        coord, list) and len(coord) == 2]
+                    valid_coords = [
+                        coord for coord in parsed_coords if len(coord) == 2]
 
                     latitudes = [float(coord[1]) for coord in valid_coords]
                     longitudes = [float(coord[0]) for coord in valid_coords]
@@ -88,6 +88,8 @@ def main(input_path_events, output):
 
     print("Final schema being written to parquet:")
     events_df.printSchema()
+    print("Final DF:")
+    events_df.show()
     events_df.write.mode("overwrite").parquet(output)
 
 
