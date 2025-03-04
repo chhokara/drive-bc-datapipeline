@@ -1,7 +1,6 @@
 import ast
-import numpy as np
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, to_timestamp, explode, udf
+from pyspark.sql.functions import col, to_timestamp, explode, pandas_udf, PandasUDFType
 from pyspark.sql.types import ArrayType, DoubleType
 import sys
 assert sys.version_info >= (3, 5)
@@ -18,63 +17,67 @@ def read_data(spark, input_path_events):
     return events
 
 
-def process_coordinates(geo_type, coords):
-    if geo_type == "Point":
-        if isinstance(coords, list) and len(coords) == 2:
-            try:
-                return [float(coords[0]), float(coords[1])]
-            except ValueError:
-                return None
-    elif geo_type == "LineString":
-        if isinstance(coords, list) and len(coords) > 0:
-            try:
-                parsed_coords = [ast.literal_eval(coord) if isinstance(
-                    coord, str) else coord for coord in coords]
+@pandas_udf(ArrayType(DoubleType()), PandasUDFType.SCALAR)
+def process_coordinates_pandas(geo_type_series, coords_series):
+    import pandas as pd
+    import numpy as np
 
-                valid_coords = [coord for coord in parsed_coords if isinstance(
-                    coord, list) and len(coord) == 2]
+    results = []
+    for geo_type, coords in zip(geo_type_series, coords_series):
+        if geo_type == "Point":
+            if isinstance(coords, list) and len(coords) == 2:
+                try:
+                    results.append([float(coords[0]), float(coords[1])])
+                except ValueError:
+                    results.append(None)
+            else:
+                results.append(None)
+        elif geo_type == "LineString":
+            if isinstance(coords, list) and len(coords) > 0:
+                try:
+                    parsed_coords = [ast.literal_eval(coord) if isinstance(
+                        coord, str) else coord for coord in coords]
 
-                latitudes = [float(coord[1]) for coord in valid_coords]
-                longitudes = [float(coord[0]) for coord in valid_coords]
+                    valid_coords = [coord for coord in parsed_coords if isinstance(
+                        coord, list) and len(coord) == 2]
 
-                if latitudes and longitudes:
-                    avg_lat = float(np.mean(latitudes))
-                    avg_lon = float(np.mean(longitudes))
-                    return [avg_lat, avg_lon]
-            except (ValueError, SyntaxError):
-                return None
-    return None
+                    latitudes = [float(coord[1]) for coord in valid_coords]
+                    longitudes = [float(coord[0]) for coord in valid_coords]
 
+                    if latitudes and longitudes:
+                        avg_lat = float(np.mean(latitudes))
+                        avg_lon = float(np.mean(longitudes))
+                        results.append([avg_lat, avg_lon])
+                    else:
+                        results.append(None)
+                except (ValueError, SyntaxError):
+                    results.append(None)
+            else:
+                results.append(None)
+        else:
+            results.append(None)
 
-process_coordinates_udf = udf(process_coordinates, ArrayType(DoubleType()))
+    return pd.Series(results)
 
 
 def clean_data(events_df):
     events_df = events_df.dropDuplicates(["id"])
-
-    events_df = events_df.fillna("unknown", subset=[
-                                 "headline", "description", "+ivr_message", "severity"])
 
     events_df = events_df.dropna(subset=["id", "geography", "event_type"])
 
     events_df = events_df.withColumn("updated", to_timestamp(col("updated"))) \
                          .withColumn("created", to_timestamp(col("created")))
 
-    events_df = events_df.filter(col("geography.type").isNotNull() & col(
-        "geography.coordinates").isNotNull())
-
     events_df = events_df.withColumn(
         "coordinates",
-        process_coordinates_udf(col("geography.type"),
-                                col("geography.coordinates"))
+        process_coordinates_pandas(col("geography.type"),
+                                   col("geography.coordinates"))
     )
 
     events_df = events_df.withColumn("latitude", col("coordinates")[0]) \
-                         .withColumn("longitude", col("coordinates")[1])
-
-    events_df = events_df.dropna(subset=["latitude", "longitude"])
-
-    events_df = events_df.drop("geography", "coordinates")
+                         .withColumn("longitude", col("coordinates")[1]) \
+                         .dropna(subset=["latitude", "longitude"]) \
+                         .drop("geography", "coordinates")
 
     return events_df
 
