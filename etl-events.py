@@ -1,3 +1,5 @@
+import numpy as np
+import pandas as pd
 import ast
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, to_timestamp, explode, pandas_udf
@@ -19,9 +21,6 @@ def read_data(spark, input_path_events):
 
 @pandas_udf(ArrayType(DoubleType()))
 def process_coordinates_pandas(geo_type_series, coords_series):
-    import pandas as pd
-    import numpy as np
-
     results = []
     for geo_type, coords in zip(geo_type_series, coords_series):
         if geo_type == "Point":
