@@ -1,157 +1,81 @@
-import json
-import pandas as pd
+import sys
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-
-# 🔹 Step 1: Load and Preprocess Data
-
-
-def load_and_preprocess(file_path):
-    df = pd.read_csv(file_path)
-    drop_columns = ["jurisdiction_url", "url", "id", "headline", "description",
-                    "+ivr_message", "roads", "areas", "geography.type", "geography.coordinates"]
-    df = df.drop(
-        columns=[col for col in drop_columns if col in df.columns], errors='ignore')
-    df["created"] = pd.to_datetime(df["created"], errors="coerce")
-    df["updated"] = pd.to_datetime(df["updated"], errors="coerce")
-    df["created_year"] = df["created"].dt.year
-    df["created_month"] = df["created"].dt.month
-    df["created_day"] = df["created"].dt.day
-    df["updated_year"] = df["updated"].dt.year
-    df["updated_month"] = df["updated"].dt.month
-    df["updated_day"] = df["updated"].dt.day
-    df["computed_duration"] = (df["updated"] - df["created"]).dt.days
-    df = df.drop(columns=["created", "updated"], errors='ignore')
-    df = df.dropna(subset=["duration"])
-
-    categorical_columns = df.select_dtypes(include=["object"]).columns.tolist()
-    label_encoders = {}
-
-    for col in categorical_columns:
-        df[col] = df[col].astype(str)  # Convert to string to avoid NaN errors
-        le = LabelEncoder()
-        df[col] = le.fit_transform(df[col])
-        label_encoders[col] = le
-
-    # Normalize numerical features
-    numerical_columns = df.select_dtypes(include=[np.number]).columns.tolist()
-    numerical_columns.remove("duration")  # Exclude target variable
-    scaler = StandardScaler()
-    df[numerical_columns] = scaler.fit_transform(df[numerical_columns])
-
-    return df, label_encoders, scaler
-
-# 🔹 Step 2: Train Random Forest Model
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, to_timestamp, size
+from pyspark.ml.feature import VectorAssembler, StandardScaler, StringIndexer
+from pyspark.ml.regression import RandomForestRegressor, GBTRegressor
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.ml.evaluation import RegressionEvaluator
 
 
-def train_model(df):
-    X = df.drop(columns=["duration"])
-    y = df["duration"]
+parquet_folder_path = sys.argv[1]
 
-    # Split data (80% train, 20% test)
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42)
+spark = SparkSession.builder.appName("ML-Duration-Prediction").getOrCreate()
 
-    # Train RandomForest model
-    rf_model = RandomForestRegressor(n_estimators=200, random_state=42)
-    rf_model.fit(X_train, y_train)
+df_spark = spark.read.parquet(parquet_folder_path)
 
-    # Make predictions on test set
-    y_pred = rf_model.predict(X_test)
+df_spark = df_spark.withColumn("created", to_timestamp(col("created")))
+df_spark = df_spark.withColumn("updated", to_timestamp(col("updated")))
 
-    # Evaluate model performance
-    mae = mean_absolute_error(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
+df_spark = df_spark.withColumn("duration", (col("updated").cast("long") - col("created").cast("long")) / (60 * 60 * 24))
 
-    print(
-        f"🔹 Model Performance on Test Data:\nMAE: {mae}\nMSE: {mse}\nR² Score: {r2}")
+df_spark = df_spark.dropna(subset=["duration"])
 
-    return rf_model, X_test, y_test, X_train.columns  # Return column names
+df_spark = df_spark.withColumn("num_roads", size(col("roads")))
+df_spark = df_spark.withColumn("num_areas", size(col("areas")))
 
+df_spark = df_spark.withColumn("latitude", col("latitude"))  
+df_spark = df_spark.withColumn("longitude", col("longitude"))
 
-# 🔹 Step 3: Test Model with Existing Data
-def test_model(rf_model, X_test, y_test):
-    y_pred = rf_model.predict(X_test)
+drop_columns = ["jurisdiction_url", "url", "id", "headline", "description", "+ivr_message", "roads", "areas", "schedule"]
+df_spark = df_spark.drop(*drop_columns)
 
-    # Print Predicted vs Actual
-    test_results = pd.DataFrame(
-        {"Actual Duration": y_test, "Predicted Duration": y_pred})
-    print("\n🔹 Sample Test Predictions:")
-    print(test_results.head(10))  # Show first 10 results
+categorical_columns = ["event_type", "severity", "status"]
+indexers = [StringIndexer(inputCol=col, outputCol=col+"_index", handleInvalid="keep") for col in categorical_columns]
 
-    return test_results
+feature_cols = ["num_roads", "num_areas", "latitude", "longitude", "event_type_index", "severity_index", "status_index"]
+vector_assembler = VectorAssembler(inputCols=feature_cols, outputCol="features")
 
-# 🔹 Step 4: Predict on New Unseen Data
+scaler = StandardScaler(inputCol="features", outputCol="scaled_features", withStd=True, withMean=True)
 
+for indexer in indexers:
+    df_spark = indexer.fit(df_spark).transform(df_spark)
 
-def predict_new_data(rf_model, label_encoders, scaler, new_file_path, output_file_path, expected_columns):
-    new_data = pd.read_csv(new_file_path)
+df_spark = vector_assembler.transform(df_spark)
+df_spark = scaler.fit(df_spark).transform(df_spark)
 
-    # Apply the same preprocessing steps
-    new_data["created"] = pd.to_datetime(new_data["created"], errors="coerce")
-    new_data["updated"] = pd.to_datetime(new_data["updated"], errors="coerce")
+train, test = df_spark.randomSplit([0.8, 0.2], seed=42)
 
-    new_data["created_year"] = new_data["created"].dt.year
-    new_data["created_month"] = new_data["created"].dt.month
-    new_data["created_day"] = new_data["created"].dt.day
-    new_data["updated_year"] = new_data["updated"].dt.year
-    new_data["updated_month"] = new_data["updated"].dt.month
-    new_data["updated_day"] = new_data["updated"].dt.day
+rf = RandomForestRegressor(featuresCol="scaled_features", labelCol="duration", numTrees=100, maxDepth=5, maxBins=32)
+gbt = GBTRegressor(featuresCol="scaled_features", labelCol="duration", maxIter=100, maxDepth=5)
 
-    new_data["computed_duration"] = (
-        new_data["updated"] - new_data["created"]).dt.days
+evaluator = RegressionEvaluator(labelCol="duration", predictionCol="prediction", metricName="rmse")
 
-    # Drop unnecessary columns
-    drop_columns = ["created", "updated", "jurisdiction_url", "url", "id", "headline",
-                    "description", "+ivr_message", "roads", "areas", "geography.type", "geography.coordinates"]
-    new_data = new_data.drop(columns=drop_columns, errors="ignore")
+param_grid = ParamGridBuilder() \
+    .addGrid(rf.numTrees, [50, 100, 150]) \
+    .addGrid(rf.maxDepth, [5, 10, 15]) \
+    .addGrid(rf.maxBins, [16, 32]) \
+    .build()
 
-    # Encode categorical variables safely (handle unseen labels)
-    for col in label_encoders:
-        new_data[col] = new_data[col].astype(str)
-        new_data[col] = new_data[col].apply(lambda x: label_encoders[col].transform([x])[
-                                            0] if x in label_encoders[col].classes_ else -1)
+crossval = CrossValidator(estimator=rf, estimatorParamMaps=param_grid, evaluator=evaluator, numFolds=3)
 
-    # Ensure test data has the same features as training
-    expected_features = list(expected_columns)  # Use columns from training
-    new_data = new_data.reindex(columns=expected_features, fill_value=0)
+cv_model = crossval.fit(train)
 
-    # Apply scaling
-    numerical_columns = new_data.select_dtypes(
-        include=[np.number]).columns.tolist()
-    new_data[numerical_columns] = scaler.transform(new_data[numerical_columns])
+best_rf = cv_model.bestModel
+best_rf_predictions = best_rf.transform(test)
+rf_rmse = evaluator.evaluate(best_rf_predictions)
 
-    # Predict durations
-    new_data["Predicted Duration"] = rf_model.predict(new_data)
+gbt_model = gbt.fit(train)
+gbt_predictions = gbt_model.transform(test)
+gbt_rmse = evaluator.evaluate(gbt_predictions)
 
-    # Save predictions
-    new_data.to_csv(output_file_path, index=False)
+if gbt_rmse < rf_rmse:
+    best_model = gbt_model
+    best_rmse = gbt_rmse
+else:
+    best_model = best_rf
+    best_rmse = rf_rmse
 
-    print(f"🔹 Predictions saved to {output_file_path}")
-    return new_data
+print(f"Best Model RMSE: {best_rmse}")
 
-
-# 🔹 Step 5: Run the Full Pipeline
-file_path = "Final_Project/incidents_data.csv"
-# Replace with actual path for new data
-new_file_path = "Final_Project/Generated_Test_Data.csv"
-output_file_path = "Final_Project/predicted_durations.csv"
-
-
-# Load and preprocess data
-df_processed, label_encoders, scaler = load_and_preprocess(file_path)
-
-# Train model
-rf_model, X_test, y_test, expected_columns = train_model(df_processed)
-
-
-# Test model with existing test set
-test_results = test_model(rf_model, X_test, y_test)
-
-# Predict on new unseen data
-predicted_data = predict_new_data(
-    rf_model, label_encoders, scaler, new_file_path, output_file_path, expected_columns)
+spark.stop()
