@@ -1,0 +1,7 @@
+
+Neural Network Regression Model - Duration Prediction
+
+RMSE: 13.53481804231134
+MAE: 1.4361543655395508
+MSE: 183.19129943847656
+R² Score: 0.007545053958892822
