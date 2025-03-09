@@ -7,7 +7,7 @@ from confluent_kafka import Producer
 S3_BUCKET = "drive-events-json"
 S3_KEY_PREFIX = "road-incidents/"
 API_URL = "https://api.open511.gov.bc.ca/events"
-KAFKA_BROKER = "boot-70b.driveeventscluster.5goiqm.c1.kafka.us-west-2.amazonaws.com:9094,boot-kyq.driveeventscluster.5goiqm.c1.kafka.us-west-2.amazonaws.com:9094,boot-ner.driveeventscluster.5goiqm.c1.kafka.us-west-2.amazonaws.com:9094"
+KAFKA_BROKER = ""
 KAFKA_TOPIC = "road-incidents-topic"
 
 s3 = boto3.client('s3')
