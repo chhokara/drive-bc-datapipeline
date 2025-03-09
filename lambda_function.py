@@ -13,7 +13,8 @@ KAFKA_TOPIC = "road-incidents-topic"
 s3 = boto3.client('s3')
 
 producer = Producer({
-    'bootstrap.servers': KAFKA_BROKER
+    'bootstrap.servers': KAFKA_BROKER,
+    'security.protocol': 'SSL'
 })
 
 
