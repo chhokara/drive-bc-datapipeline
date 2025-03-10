@@ -1,3 +1,7 @@
+"""
+This file is used to load raw event data and ETL it for time-series analysis. 
+"""
+
 from pyspark.sql import SparkSession, functions as f
 import sys
 assert sys.version_info >= (3, 5)
