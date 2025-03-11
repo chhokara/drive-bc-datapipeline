@@ -10,13 +10,15 @@ def clean_df(df):
     df = df.dropDuplicates(['id'])
     df = df.withColumn('road', f.explode('roads'))
     df = df.withColumn('area', f.explode('areas'))
+    df = df.withColumn('timestamp', f.to_timestamp('created'))
     col_filt_df = df.select([
         'event_type', 
-        'created', 
+        'timestamp', 
         'severity', 
         f.col('road.name').alias('road'),
         f.col('area.name').alias('area')
     ])
+    col_filt_df.printSchema()
     return col_filt_df
 
 
