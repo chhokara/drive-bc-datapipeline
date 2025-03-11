@@ -27,13 +27,15 @@ def main(inputs,  output):
     by_group(df, 'event_type', output)
     by_group(df, 'road', output)
     by_group(df, 'area', output)
+    by_group(df, 'event_subtype', output)
     by_group(df, ['event_type', 'month', 'year'], output)
+    by_group(df, ['event_subtype', 'month'], output)
 
 
 if __name__ == '__main__':
     inputs = sys.argv[1]
     output = sys.argv[2]
-    spark = SparkSession.builder.appName('Simple Analytics').getOrCreate()
+    spark = SparkSession.builder.appName('Simple Event Analytics').getOrCreate()
     assert spark.version >= '3.0'
     spark.sparkContext.setLogLevel('WARN')
     sc = spark.sparkContext
