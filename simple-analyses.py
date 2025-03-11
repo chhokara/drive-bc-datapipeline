@@ -15,7 +15,6 @@ def by_group(df, groups, output):
     label = groups
     if (isinstance(groups, list)):
         label = '_'.join(groups)
-        print(label)
     grp_df.write.mode('overwrite').parquet(f'{output}/by_{label}')
 
 

@@ -18,7 +18,6 @@ def clean_df(df):
         f.col('road.name').alias('road'),
         f.col('area.name').alias('area')
     ])
-    col_filt_df.printSchema()
     return col_filt_df
 
 
