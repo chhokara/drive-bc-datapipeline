@@ -23,6 +23,7 @@ def main(inputs,  output):
     df = df.withColumn('year', f.year('timestamp'))
     df = df.withColumn('month', f.month('timestamp'))
     df = df.withColumn('hour', f.hour('timestamp'))
+    df = df.withColumn('day', f.day('timestamp'))
     by_group(df, 'severity', output)
     by_group(df, 'event_type', output)
     by_group(df, 'road', output)
@@ -30,6 +31,7 @@ def main(inputs,  output):
     by_group(df, 'event_subtype', output)
     by_group(df, ['event_type', 'month', 'year'], output)
     by_group(df, ['event_subtype', 'month'], output)
+    by_group(df, ['day', 'month', 'year'], output)
 
 
 if __name__ == '__main__':
