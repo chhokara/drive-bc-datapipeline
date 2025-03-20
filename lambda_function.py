@@ -2,6 +2,7 @@ import os
 import json
 import requests
 from kafka import KafkaProducer
+from kafka.sasl.oauth import AbstractTokenProvider
 from boto3.session import Session
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
@@ -9,17 +10,22 @@ from botocore.awsrequest import AWSRequest
 KAFKA_BROKER_STRING = os.getenv('KAFKA_BROKER_STRING')
 KAFKA_TOPIC = os.getenv('KAFKA_TOPIC')
 DRIVEBC_API_URL = os.getenv('DRIVEBC_API_URL')
-AWS_REGION = os.getenv('AWS_REGION')
+REGION = os.getenv('REGION')
 
 session = Session()
 credentials = session.get_credentials()
 
 
-def sign_request(host, region):
-    service = "kafka-cluster"
-    request = AWSRequest(method='GET', url=f"https://{host}")
-    SigV4Auth(credentials, service, region).add_auth(request)
-    return request.headers['Authorization']
+class IAMKafkaTokenProvider(AbstractTokenProvider):
+    def __init__(self, host, region):
+        self.host = host
+        self.region = region
+
+    def token(self):
+        service = "kafka-cluster"
+        request = AWSRequest(method='GET', url=f"https://{self.host}")
+        SigV4Auth(credentials, service, self.region).add_auth(request)
+        return request.headers['Authorization']
 
 
 class IAMKafkaProducer:
@@ -31,12 +37,10 @@ class IAMKafkaProducer:
             bootstrap_servers=[self.broker],
             security_protocol='SASL_SSL',
             sasl_mechanism='OAUTHBEARER',
-            sasl_oauth_token_provider=self._sign_aws_request,
+            sasl_oauth_token_provider=IAMKafkaTokenProvider(
+                self.broker, self.region),
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
         )
-
-    def _sign_aws_request(self):
-        return sign_request(self.broker, self.region)
 
     def send(self, topic, key, message):
         future = self.producer.send(topic, key=key, value=message)
@@ -58,7 +62,7 @@ def send_to_kafka(data):
     if not data:
         print("No data to send to Kafka")
         return
-    producer = IAMKafkaProducer(KAFKA_BROKER_STRING, AWS_REGION)
+    producer = IAMKafkaProducer(KAFKA_BROKER_STRING, REGION)
     message = json.dumps(data)
     result = producer.send(KAFKA_TOPIC, key="drivebc", message=message)
     print("Message sent to Kafka: ", result)
