@@ -1,56 +1,19 @@
-import os
+import boto3
 import json
 import requests
-from kafka import KafkaProducer
-from kafka.sasl.oauth import AbstractTokenProvider
-from boto3.session import Session
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
-
-KAFKA_BROKER_STRING = os.getenv('KAFKA_BROKER_STRING')
-KAFKA_TOPIC = os.getenv('KAFKA_TOPIC')
-DRIVEBC_API_URL = os.getenv('DRIVEBC_API_URL')
-REGION = os.getenv('REGION')
-
-session = Session()
-credentials = session.get_credentials()
+import os
 
 
-class IAMKafkaTokenProvider(AbstractTokenProvider):
-    def __init__(self, host, region):
-        self.host = host
-        self.region = region
+kinesis = boto3.client('kinesis')
 
-    def token(self):
-        service = "kafka-cluster"
-        request = AWSRequest(method='GET', url=f"https://{self.host}")
-        SigV4Auth(credentials, service, self.region).add_auth(request)
-        return request.headers['Authorization']
-
-
-class IAMKafkaProducer:
-    def __init__(self, broker, region):
-        self.region = region
-        self.broker = broker
-
-        self.producer = KafkaProducer(
-            bootstrap_servers=[self.broker],
-            security_protocol='SASL_SSL',
-            sasl_mechanism='OAUTHBEARER',
-            sasl_oauth_token_provider=IAMKafkaTokenProvider(
-                self.broker, self.region),
-            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        )
-
-    def send(self, topic, key, message):
-        future = self.producer.send(topic, key=key, value=message)
-        result = future.get(timeout=10)
-        return result
+DRIVEBC_API_URL = os.environ.get("DRIVEBC_API_URL")
+KINESIS_STREAM_NAME = os.environ.get("KINESIS_STREAM_NAME")
 
 
 def fetch_drivebc_data():
     response = requests.get(DRIVEBC_API_URL)
     if response.status_code == 200:
+        print("Data fetched from DriveBC API")
         return response.json()
     else:
         print(
@@ -58,20 +21,24 @@ def fetch_drivebc_data():
         return None
 
 
-def send_to_kafka(data):
+def send_to_kinesis(data):
     if not data:
-        print("No data to send to Kafka")
+        print("No data to send to Kinesis")
         return
-    producer = IAMKafkaProducer(KAFKA_BROKER_STRING, REGION)
-    message = json.dumps(data)
-    result = producer.send(KAFKA_TOPIC, key="drivebc", message=message)
-    print("Message sent to Kafka: ", result)
+
+    response = kinesis.put_record(
+        StreamName=KINESIS_STREAM_NAME,
+        Data=json.dumps(data),
+        PartitionKey='lambda-producer'
+    )
+
+    print(f"Data sent to Kinesis: {response}")
 
 
 def lambda_handler(event, context):
     data = fetch_drivebc_data()
-    send_to_kafka(data)
+    send_to_kinesis(data)
     return {
         'statusCode': 200,
-        'body': json.dumps({'message': 'Data sent to Kafka'})
+        'body': json.dumps({'message': 'Data sent to Kinesis'})
     }
