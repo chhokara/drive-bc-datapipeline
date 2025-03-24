@@ -11,11 +11,11 @@ def clean_df(df):
     df = df.withColumn('road', f.explode('roads'))
     df = df.withColumn('area', f.explode('areas'))
     df = df.withColumn('event_subtype', f.explode('event_subtypes'))
-    df = df.withColumn('timestamp', f.to_timestamp('created'))
+    df = df.withColumn('event_timestamp', f.to_timestamp('created'))
     col_filt_df = df.select([
         'id',
         'event_type', 
-        'timestamp', 
+        'event_timestamp', 
         'severity', 
         'event_subtype',
         f.col('road.name').alias('road'),
