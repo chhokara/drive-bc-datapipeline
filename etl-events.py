@@ -2,102 +2,148 @@ import numpy as np
 import pandas as pd
 import ast
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, to_timestamp, explode, pandas_udf
-from pyspark.sql.types import ArrayType, DoubleType
+from pyspark.sql.functions import col, to_timestamp, explode, from_json, pandas_udf
+from pyspark.sql.types import ArrayType, DoubleType, StringType, StructType, StructField
 import sys
-assert sys.version_info >= (3, 5)
 
+event_schema = StructType([
+    StructField("id", StringType()),
+    StructField("headline", StringType()),
+    StructField("status", StringType()),
+    StructField("created", StringType()),
+    StructField("updated", StringType()),
+    StructField("event_type", StringType()),
+    StructField("event_subtypes", ArrayType(StringType())),
+    StructField("severity", StringType()),
+    StructField("geography", StructType([
+        StructField("type", StringType()),
+        StructField("coordinates", StringType())
+    ])),
+])
 
-def read_data(spark, input_path_events):
-    raw_events = spark.read.json(input_path_events)
-
-    events_exploded = raw_events.select(
-        explode(col("events")).alias("events_data"))
-
-    events = events_exploded.select("events_data.*")
-
-    return events
-
+top_level_schema = StructType([
+    StructField("events", ArrayType(event_schema))
+])
 
 @pandas_udf(ArrayType(DoubleType()))
 def process_coordinates_pandas(geo_type_series, coords_series):
     results = []
-    for geo_type, coords in zip(geo_type_series, coords_series):
+    for geo_type, coords_str in zip(geo_type_series, coords_series):
+        try:
+            parsed = ast.literal_eval(coords_str)
+        except (ValueError, SyntaxError):
+            results.append(None)
+            continue
+
         if geo_type == "Point":
-            if len(coords) == 2:
+            if isinstance(parsed, list) and len(parsed) == 2:
                 try:
-                    results.append([float(coords[0]), float(coords[1])])
+                    results.append([float(parsed[0]), float(parsed[1])])
                 except ValueError:
                     results.append(None)
             else:
                 results.append(None)
+
         elif geo_type == "LineString":
-            if len(coords) > 0:
+            if isinstance(parsed, list) and all(isinstance(coord, list) and len(coord) == 2 for coord in parsed):
                 try:
-                    parsed_coords = [ast.literal_eval(
-                        coord) for coord in coords]
-
-                    valid_coords = [
-                        coord for coord in parsed_coords if len(coord) == 2]
-
-                    latitudes = [float(coord[1]) for coord in valid_coords]
-                    longitudes = [float(coord[0]) for coord in valid_coords]
-
-                    if latitudes and longitudes:
-                        avg_lat = float(np.mean(latitudes))
-                        avg_lon = float(np.mean(longitudes))
-                        results.append([avg_lat, avg_lon])
-                    else:
-                        results.append(None)
-                except (ValueError, SyntaxError):
+                    latitudes = [float(coord[1]) for coord in parsed]
+                    longitudes = [float(coord[0]) for coord in parsed]
+                    avg_lat = float(np.mean(latitudes))
+                    avg_lon = float(np.mean(longitudes))
+                    results.append([avg_lon, avg_lat])
+                except ValueError:
                     results.append(None)
             else:
                 results.append(None)
+
         else:
             results.append(None)
 
     return pd.Series(results)
 
+# [lon, lat] pairs for plotting 
+    
+def main(kinesis_stream_name, output_path):
+  
+    print('stream name', kinesis_stream_name)
+    print('output path', output_path)
+    
+    # Step 1: Read from Kinesis stream
+    raw_df = spark.readStream \
+        .format("aws-kinesis") \
+        .option("kinesis.streamName", kinesis_stream_name) \
+        .option("kinesis.region", "us-west-2") \
+        .option("kinesis.endpointUrl", "https://kinesis.us-west-2.amazonaws.com") \
+        .option("kinesis.initialPosition", "LATEST") \
+        .load()
 
-def clean_data(events_df):
-    events_df = events_df.dropDuplicates(["id"])
+    # Step 2: Extract JSON from binary
+    json_df = raw_df.selectExpr("CAST(data AS STRING) as json_str")
 
-    events_df = events_df.dropna(subset=["id", "geography", "event_type"])
-
-    events_df = events_df.withColumn("updated", to_timestamp(col("updated"))) \
-                         .withColumn("created", to_timestamp(col("created")))
-
-    events_df = events_df.withColumn(
-        "coordinates",
-        process_coordinates_pandas(col("geography.type"),
-                                   col("geography.coordinates"))
+    # Step 3: Parse JSON
+    parsed_df = json_df.select(from_json(col("json_str"), top_level_schema).alias("parsed"))
+    
+    # Step 4: Explode events and attirbutes into a tabular format
+    exploded_df = parsed_df \
+        .selectExpr("parsed.events as events") \
+        .select(explode("events").alias("event")) \
+        .select("event.*")    
+        
+    # Step 5: Parse coordinates using UDF
+    exploded_df = exploded_df.withColumn(
+    "coordinates", process_coordinates_pandas(
+        col("geography.type"),
+        col("geography.coordinates")
     )
+    ).withColumn("latitude", col("coordinates")[1]) \
+    .withColumn("longitude", col("coordinates")[0])
+    
+    # Step 6: Drop NAs & duplicates, convert to timestamps, and drop redundant columns
+    cleaned_df = exploded_df.dropDuplicates(["id"]) \
+        .dropna(subset=["id", "geography", "event_type"]) \
+        .withColumn("updated", to_timestamp(col("updated"))) \
+        .withColumn("created", to_timestamp(col("created"))) \
+        .dropna(subset=["latitude", "longitude"]) \
+        .drop("geography", "coordinates")
+        
+        
+    cleaned_df.writeStream \
+        .outputMode("append") \
+        .format("console") \
+        .option("truncate", False) \
+        .start() \
+        .awaitTermination()
+    
 
-    events_df = events_df.withColumn("latitude", col("coordinates")[0]) \
-                         .withColumn("longitude", col("coordinates")[1]) \
-                         .dropna(subset=["latitude", "longitude"]) \
-                         .drop("geography", "coordinates")
+    # # Write to Parquet sink in micro-batches
+    # print('writing to parquet!')
+    # query = cleaned_df.writeStream \
+    #     .format("parquet") \
+    #     .option("checkpointLocation", output_path + "/_checkpoint") \
+    #     .option("path", output_path) \
+    #     .outputMode("append") \
+    #     .start()
 
-    return events_df
-
-
-def main(input_path_events, output):
-    events_df = read_data(spark, input_path_events)
-    events_df = clean_data(events_df)
-
-    print("Final schema being written to parquet:")
-    events_df.printSchema()
-    print("Final DF:")
-    events_df.show()
-    events_df.write.mode("overwrite").parquet(output)
+    # query = values.writeStream \
+    # .outputMode('append') \
+    # .format('console') \
+    # .option('truncate', False) \
+    # .start()
+    
+    # query.awaitTermination()
 
 
 if __name__ == '__main__':
-    inputs = sys.argv[1]
-    output = sys.argv[2]
-    spark = SparkSession.builder.appName(
-        'DriveBC Events Processing').getOrCreate()
-    assert spark.version >= '3.0'
-    spark.sparkContext.setLogLevel('WARN')
-    sc = spark.sparkContext
-    main(inputs, output)
+    # Create Spark session
+    spark = SparkSession.builder.appName("DriveBC Kinesis Streaming").getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
+    try:
+        print("Args:", sys.argv)
+        kinesis_stream_name = sys.argv[1]
+        output_path = sys.argv[2]
+        main(kinesis_stream_name, output_path)
+    except Exception as e:
+        print("ERROR:", e)
+        raise
+
