@@ -65,9 +65,6 @@ def process_coordinates_pandas(geo_type_series, coords_series):
 # [lon, lat] pairs for plotting 
     
 def main(kinesis_stream_name, output_path):
-  
-    print('stream name', kinesis_stream_name)
-    print('output path', output_path)
     
     # Step 1: Read from Kinesis stream
     raw_df = spark.readStream \
@@ -77,7 +74,7 @@ def main(kinesis_stream_name, output_path):
         .option("kinesis.endpointUrl", "https://kinesis.us-west-2.amazonaws.com") \
         .option("kinesis.initialPosition", "LATEST") \
         .load()
-
+        
     # Step 2: Extract JSON from binary
     json_df = raw_df.selectExpr("CAST(data AS STRING) as json_str")
 
@@ -99,47 +96,35 @@ def main(kinesis_stream_name, output_path):
     ).withColumn("latitude", col("coordinates")[1]) \
     .withColumn("longitude", col("coordinates")[0])
     
-    # Step 6: Drop NAs & duplicates, convert to timestamps, and drop redundant columns
-    cleaned_df = exploded_df.dropDuplicates(["id"]) \
-        .dropna(subset=["id", "geography", "event_type"]) \
+    # Step 6: Drop NAs, convert to timestamps, and drop redundant columns
+    cleaned_df = exploded_df.dropna(subset=["id", "geography", "event_type"]) \
         .withColumn("updated", to_timestamp(col("updated"))) \
         .withColumn("created", to_timestamp(col("created"))) \
         .dropna(subset=["latitude", "longitude"]) \
-        .drop("geography", "coordinates")
-        
-        
-    cleaned_df.writeStream \
-        .outputMode("append") \
-        .format("console") \
-        .option("truncate", False) \
+        .drop("geography", "coordinates") 
+    
+    # Step 7: Write to Parquet and stream to S3
+    query = cleaned_df.writeStream \
+        .foreachBatch(filter_empty_batches(output_path)) \
+        .option("checkpointLocation", output_path + "/_checkpoint") \
         .start() \
         .awaitTermination()
-    
-
-    # # Write to Parquet sink in micro-batches
-    # print('writing to parquet!')
-    # query = cleaned_df.writeStream \
-    #     .format("parquet") \
-    #     .option("checkpointLocation", output_path + "/_checkpoint") \
-    #     .option("path", output_path) \
-    #     .outputMode("append") \
-    #     .start()
-
-    # query = values.writeStream \
-    # .outputMode('append') \
-    # .format('console') \
-    # .option('truncate', False) \
-    # .start()
-    
-    # query.awaitTermination()
-
+        
+# Function to filter empty batches out and save space
+def filter_empty_batches(output_path):
+    def inner(batch_df, batch_id):
+        count = batch_df.count()
+        print(f"Batch ID: {batch_id}, Count: {count}")
+        if count > 0:
+            batch_df.write.mode("append").parquet(output_path)
+        else:
+            print("Skipping empty batch")
+    return inner
 
 if __name__ == '__main__':
-    # Create Spark session
     spark = SparkSession.builder.appName("DriveBC Kinesis Streaming").getOrCreate()
-    spark.sparkContext.setLogLevel("WARN")
+    spark.sparkContext.setLogLevel("ERROR")
     try:
-        print("Args:", sys.argv)
         kinesis_stream_name = sys.argv[1]
         output_path = sys.argv[2]
         main(kinesis_stream_name, output_path)
