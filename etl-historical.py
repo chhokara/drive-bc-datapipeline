@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import ast
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, to_timestamp, explode, pandas_udf, from_json
-from pyspark.sql.types import ArrayType, DoubleType, StructType, StructField, StringType, TimestampType
+from pyspark.sql.functions import col, to_timestamp, pandas_udf
+from pyspark.sql.types import ArrayType, DoubleType
 import sys
 assert sys.version_info >= (3, 5)
 
