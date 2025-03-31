@@ -2,5 +2,5 @@ proposal
 Data
 EMR Spark Streaming Key Pair.pem
 emr-streaming-bootstrapping.sh
-spark-streaming-sql-kinesis-connector_2.12-1.0.0.jar
 emr-streaming-bootstrap.sh
+jars
