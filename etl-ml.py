@@ -45,7 +45,7 @@ def process_coordinates_pandas(geo_type_series, coords_series):
                     if latitudes and longitudes:
                         avg_lat = float(np.mean(latitudes))
                         avg_lon = float(np.mean(longitudes))
-                        results.append([avg_lat, avg_lon])
+                        results.append([avg_lon, avg_lat])
                     else:
                         results.append(None)
                 except (ValueError, SyntaxError):

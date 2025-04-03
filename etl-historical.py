@@ -39,7 +39,7 @@ def process_coordinates_pandas(geo_type_series, coords_series):
                     if latitudes and longitudes:
                         avg_lat = float(np.mean(latitudes))
                         avg_lon = float(np.mean(longitudes))
-                        results.append([avg_lat, avg_lon])
+                        results.append([avg_lon, avg_lat])
                     else:
                         results.append(None)
                 except (ValueError, SyntaxError):
@@ -66,8 +66,8 @@ def clean_data(events_df):
                                    col("geography.coordinates"))
     )
 
-    events_df = events_df.withColumn("latitude", col("coordinates")[0]) \
-                         .withColumn("longitude", col("coordinates")[1]) \
+    events_df = events_df.withColumn("longitude", col("coordinates")[0]) \
+                         .withColumn("latitude", col("coordinates")[1]) \
                          .dropna(subset=["latitude", "longitude"]) \
                          .drop("geography", "coordinates", "+ivr_message", "+linear_reference_km", "areas", "description", "jurisdiction_url", "roads", "schedule", "url")
 
