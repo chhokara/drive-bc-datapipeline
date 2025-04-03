@@ -3,3 +3,4 @@ Data
 EMR Spark Streaming Key Pair.pem
 emr-streaming-bootstrapping.sh
 emr-streaming-bootstrap.sh
+jars
