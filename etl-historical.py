@@ -2,20 +2,14 @@ import numpy as np
 import pandas as pd
 import ast
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, to_timestamp, explode, pandas_udf
+from pyspark.sql.functions import col, to_timestamp, pandas_udf
 from pyspark.sql.types import ArrayType, DoubleType
 import sys
 assert sys.version_info >= (3, 5)
 
-
 def read_data(spark, input_path_events):
-    raw_events = spark.read.option("multiline", "true").json(input_path_events)
-
-    # Print schema to confirm structure
-    raw_events.printSchema()
-
-    return raw_events
-
+    raw_df = spark.read.option("multiline", "true").json(input_path_events)
+    return raw_df
 
 
 @pandas_udf(ArrayType(DoubleType()))
@@ -72,10 +66,10 @@ def clean_data(events_df):
                                    col("geography.coordinates"))
     )
 
-    events_df = events_df.withColumn("latitude", col("coordinates")[0]) \
-                         .withColumn("longitude", col("coordinates")[1]) \
+    events_df = events_df.withColumn("longitude", col("coordinates")[0]) \
+                         .withColumn("latitude", col("coordinates")[1]) \
                          .dropna(subset=["latitude", "longitude"]) \
-                         .drop("geography", "coordinates")
+                         .drop("geography", "coordinates", "+ivr_message", "+linear_reference_km", "areas", "description", "jurisdiction_url", "roads", "schedule", "url")
 
     return events_df
 
@@ -86,16 +80,14 @@ def main(input_path_events, output):
 
     print("Final schema being written to parquet:")
     events_df.printSchema()
-    print("Final DF:")
-    events_df.show()
+    events_df.show(3)
     events_df.write.mode("overwrite").parquet(output)
 
 
 if __name__ == '__main__':
     inputs = sys.argv[1]
     output = sys.argv[2]
-    spark = SparkSession.builder.appName(
-        'DriveBC Events Processing').getOrCreate()
+    spark = SparkSession.builder.appName('Historical Data ETL').getOrCreate()
     assert spark.version >= '3.0'
     spark.sparkContext.setLogLevel('WARN')
     sc = spark.sparkContext
