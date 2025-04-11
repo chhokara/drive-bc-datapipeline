@@ -8,7 +8,7 @@ The Road Incident Analytics System processes live road incident data from DriveB
 - Python
 - SQL
 - Apache Spark
-- Kinesis Data Stream
+- Kinesis Data Streams
 - Lambda
 - EMR
 - S3
