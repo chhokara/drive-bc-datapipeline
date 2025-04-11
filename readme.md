@@ -14,7 +14,11 @@ The Real-Time Road Incident Analytics System processes live road incident data f
 - S3
 - Athena
 - QuickSight
+- DBScan
 
 ## Data Pipeline
 
 ![Pipeline Overview](assets/pipeline.png)
+
+## Dashboard
+![Dashboard](assets/dashboard.drawio.png)
