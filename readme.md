@@ -7,15 +7,14 @@ The Real-Time Road Incident Analytics System processes live road incident data f
 - DriveBC API
 - Python
 - SQL
-- Apache Kafka
 - Apache Spark
-- Pandas
+- Kinesis Data Stream
+- Lambda
 - EMR
 - S3
 - Athena
 - QuickSight
-- SageMaker
 
 ## Data Pipeline
 
-![Pipeline Overview](assets/road_incidents_pipeline.drawio.png)
+![Pipeline Overview](assets/pipeline.png)
