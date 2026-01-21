@@ -41,7 +41,7 @@ This system ingests real-time road incident data from the DriveBC Open511 API, p
 
 ## Architecture
 
-![Pipeline Overview](assets/road_incidents_pipeline.drawio.png)
+![Pipeline Overview](assets/pipeline.png)
 
 ### Data Flow
 
@@ -306,6 +306,12 @@ SELECT COUNT(id), event_subtype FROM event GROUP BY event_subtype;
 SELECT COUNT(id), MONTH(event_timestamp), YEAR(event_timestamp) FROM event
 GROUP BY MONTH(event_timestamp), YEAR(event_timestamp);
 ```
+
+#### QuickSight Dashboard
+
+The analytics data is visualized through AWS QuickSight dashboards for trend analysis and incident monitoring:
+
+![Dashboard](assets/dashboard.drawio.png)
 
 ---
 
